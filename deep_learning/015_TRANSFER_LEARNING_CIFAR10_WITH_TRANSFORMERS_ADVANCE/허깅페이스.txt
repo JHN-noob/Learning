@@ -1,0 +1,94 @@
+Huggingface
+
+
+Huggingface와 Transfer Learning
+  • 다양한 최신 모델과 학습 가중치를 손쉽게 사용할 수 있도록 하는 transformers 라이브러리를 제공한다.
+
+Hunggingface transformers와 Vision Transformer
+  • 간단하게 transformers.ViTForImageClassification() 메소드를 통해 Vision Transformer를 학습 가중치와 함께 다운로드받을 수 있다.
+  • transformers.ViTFeatureExtractor() 메소드를 통해, 특정 모델을 학습할때 필요한 정보도 추출 가능하다.
+    • 예: 입력 이미지 채널 Normalization을 위한 학습 이미지의 Normalization 정보
+      * feature_extractor.image_mean: (0.5, 0.5, 0.5), feature_extractor.image_std: (0.5, 0.5, 0.5)
+  • google/vit-base-pacth16-224-in21k 모델
+    • 구글의 Vision Transformer에 Classfication을 위한 Linear Layer가 붙어있는 모델
+      • 이미지는 16x16으로 쪼개서 입력으로 넣어진다.
+    • 이를 ImageNet-21k(14M images, 21843 classes, 224x224 size)로 학습한 가중치까지 바로 다운로드 가능하다.
+
+※ 모델 불러오기 및 정의
+from transformers import ViTForImageClassification, ViTFeatureExtractor
+
+feature_extractor = ViTFeatureExtractor.from_pretrained('google/vit-base-patch16-224-in21k')
+model = ViTForImageClassfication.from_pretrained('google/vit-base-patch16-224-in21k',
+                                                  num_labels = 10,
+                                                  id2label = id2label,
+                                                  label2id = label2id)
+
+
+Huggingface transformers의 학습
+  • transformers는 모델 학습에 있어서도 간단히 실행 가능한 클래스를 제공한다.
+  • transformers.TrainingArguments()
+    • 옵션이 매우 많고 수시로 변하므로 공식 가이드를 자주 확인하는것이 좋다.
+
+※ Arguments 세팅
+from transformers import TrainingArguments, Trainer
+
+args = TrainingArguments(
+    output_dir = "test-cifar-10", # 모델 예측과 체크포인트가 저장되는 폴더명
+    save_strategy = "epoch", # epoch마다 모델 학습 전략
+    eval_strategy = "epoch", # evaluation 시, epoch마다 모델 학습 전략
+    learning_rate = 2e-5, # 0.00002
+    per_device_train_batch_size = 16, # CPU/GPU 당 mini-batch 사이즈
+    per_device_eval_batch_size = 16, # evaluation 시, CPU/GPU 당 mini-batch 사이즈
+    num_train_epochs = 10, # 총 학습 에포크
+    weight_decay = 0.01, # optimizer에 들어갈 weight decay
+    load_best_model_at_end = True, # 학습 종료시 자동으로 베스트 모델을 로드한다.
+    metric_for_best_model = "accuracy", # 베스트 모델 측정을 위한 메트릭(정확도)
+    logging_dir = "logs", # Tensorboard를 위한 logs를 저장할 폴더명
+    remove_unused_columns = False, # 자동으로 모델에서 쓰지않는 컬럼 삭제 여부
+    optim = "adamw_torch", # pytorch에서 제공하는 AdamW optimizer 사용
+    lr_scheduler_type = "constant", # learning rate scheduler, 고정시 학습률 고정(default: linear)
+    save_total_limit = 10 # 저장할 checkpoints 최대 갯수(저장용량 초과 에러 방지)
+)
+
+
+  • datasets.load_metric() : 메트릭 계산방식 로드
+
+※ Metic 설정
+import evaluate
+import numpy as np
+
+metric = evaluate.load("accuracy")
+def compute_metrics(eval_pred):
+  # 예측(검증)값과 실제값을 가져온다.
+  predictions, labels = eval_pred
+  predictions = np.argmax(predictions, axis=1)
+  # 예측값 중 가장 높은 값의 인덱스 번호를 저장
+  return metric.compute(predictions=predictions, references=labels)
+
+
+  • transformers.Trainer()
+    • 학습을 위한 설정을 넣어서 객체로 만든 후, 객체.train() 메소드를 통해 학습 실행
+    • 기본적으로는 데이터 구성을 Trainer에서 동작할 수 있는 형태로 변경해야한다.
+
+※ 학습 실행
+import torch
+
+trainer = Trainer(
+    model = model,
+    args = args,
+    train_dataset = train_ds,
+    eval_dataset = val_ds,
+    data_collator = collate_fn, # mini-batch 마다의 데이터를 가져오는 함수
+    compute_metrics = compute_metrics, # metric
+    tokenizer = feature_extractor
+)
+trainer.train()
+
+
+  • 테스트(예측)
+    • Trainer()를 통해 작성한 객체.predict(테스트 데이터셋)으로 한줄로 예측 메트릭까지 확인 가능하다.
+
+※ 예측 실행
+ouputs = trainer.predict(test_ds)
+# 자신이 선언한 메트릭을 기반으로 테스트 데이터셋에 대한 베스트 모델의 성능을 확인 가능
+print(outputs.metrics)
